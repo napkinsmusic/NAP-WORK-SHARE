@@ -2,14 +2,35 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isApprovedMember() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/boards/main/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/boards/main/members/$(request.auth.uid)).data.active == true;
+    }
+
     match /boards/main/fields/{fieldId} {
-      allow read: if request.auth != null;
-      allow create, update: if request.auth != null
+      allow read: if isApprovedMember();
+      allow create, update: if isApprovedMember()
         && request.resource.data.keys().hasOnly(['value', 'updatedAt', 'updatedBy'])
         && request.resource.data.value is string
         && request.resource.data.value.size() < 800000
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if false;
+    }
+
+    match /boards/main/members/{memberId} {
+      allow get: if request.auth != null && request.auth.uid == memberId;
+      allow list, create, update, delete: if false;
+    }
+
+    match /boards/main/accessRequests/{memberId} {
+      allow get: if request.auth != null && request.auth.uid == memberId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == memberId
+        && request.resource.data.keys().hasOnly(['uid', 'requestedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.requestedAt == request.time;
+      allow list, delete: if false;
     }
 
     match /{document=**} {
