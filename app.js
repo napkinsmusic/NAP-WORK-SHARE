@@ -204,60 +204,34 @@ async function connectFirebase() {
     const auth = getAuth(app);
     const db = getFirestore(app);
     const credential = await signInAnonymously(auth);
-    const uid = credential.user.uid;
-    const memberRef = doc(db, "boards", boardId, "members", uid);
-    const requestRef = doc(db, "boards", boardId, "accessRequests", uid);
-    let sharingStarted = false;
 
-    function startSharing() {
-      if (sharingStarted) return;
-      sharingStarted = true;
-
-      writeRemote = (fieldId, value) => setDoc(
-        doc(db, "boards", boardId, "fields", fieldId),
-        {
-          value,
-          updatedAt: serverTimestamp(),
-          updatedBy: uid
-        }
-      );
-
-      for (const [fieldId, binding] of bindings) {
-        const fieldRef = doc(db, "boards", boardId, "fields", fieldId);
-        let initialized = false;
-
-        onSnapshot(fieldRef, async (snapshot) => {
-          if (snapshot.exists()) {
-            binding.set(String(snapshot.data().value ?? ""));
-          } else if (!initialized) {
-            initialized = true;
-            await writeRemote(fieldId, binding.get());
-          }
-        }, (error) => {
-          console.error(error);
-          setStatus("실시간 연결 오류", "error");
-        });
+    writeRemote = (fieldId, value) => setDoc(
+      doc(db, "boards", boardId, "fields", fieldId),
+      {
+        value,
+        updatedAt: serverTimestamp(),
+        updatedBy: credential.user.uid
       }
+    );
 
-      setStatus("승인된 팀원 · 실시간 공유됨", "connected");
+    for (const [fieldId, binding] of bindings) {
+      const fieldRef = doc(db, "boards", boardId, "fields", fieldId);
+      let initialized = false;
+
+      onSnapshot(fieldRef, async (snapshot) => {
+        if (snapshot.exists()) {
+          binding.set(String(snapshot.data().value ?? ""));
+        } else if (!initialized) {
+          initialized = true;
+          await writeRemote(fieldId, binding.get());
+        }
+      }, (error) => {
+        console.error(error);
+        setStatus("실시간 연결 오류", "error");
+      });
     }
 
-    onSnapshot(memberRef, async (snapshot) => {
-      if (snapshot.exists() && snapshot.data().active === true) {
-        startSharing();
-        return;
-      }
-
-      writeRemote = null;
-      await setDoc(requestRef, {
-        uid,
-        requestedAt: serverTimestamp()
-      });
-      setStatus("팀원 승인 대기 중", "error");
-    }, (error) => {
-      console.error(error);
-      setStatus("팀원 권한 확인 실패", "error");
-    });
+    setStatus("실시간 공유 연결됨", "connected");
   } catch (error) {
     console.error(error);
     setStatus("Firebase 연결 실패", "error");
