@@ -134,8 +134,13 @@ function sanitizeRichHtml(html) {
       if (!/^[a-zA-Z0-9-]{10,80}$/.test(imageId)) return;
       const image = document.createElement("img");
       image.dataset.imageId = imageId;
+      const width = Number(node.dataset.width);
+      if (Number.isFinite(width) && width >= 10 && width <= 100) {
+        image.dataset.width = String(width);
+        image.style.width = `${width}%`;
+      }
       image.alt = "붙여넣은 이미지";
-      image.title = "클릭 후 Delete 키로 삭제";
+      image.title = "클릭 후 우측 아래를 드래그해 크기 조절";
       parent.append(image);
       return;
     }
@@ -303,6 +308,7 @@ document.querySelectorAll(".memo").forEach((memo) => {
     content.textContent = saved.content || "";
   }
   let knownImageIds = getImageIds(content);
+  let resizeState = null;
 
   function saveLocalMemo() {
     localStorage.setItem(localKey, JSON.stringify({
@@ -349,6 +355,57 @@ document.querySelectorAll(".memo").forEach((memo) => {
     content.querySelectorAll("img.selected").forEach((image) => image.classList.remove("selected"));
     if (!event.target.matches("img[data-image-id]")) return;
     event.target.classList.add("selected");
+    setStatus("우측 아래를 드래그해 크기 조절 · Delete로 삭제");
+  });
+
+  content.addEventListener("pointerdown", (event) => {
+    if (!event.target.matches("img[data-image-id]")) return;
+    const image = event.target;
+    const rect = image.getBoundingClientRect();
+    const isResizeCorner = rect.right - event.clientX <= 28
+      && rect.bottom - event.clientY <= 28;
+    if (!isResizeCorner) return;
+
+    event.preventDefault();
+    image.classList.add("selected", "resizing");
+    image.setPointerCapture(event.pointerId);
+    resizeState = {
+      image,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: rect.width
+    };
+  });
+
+  content.addEventListener("pointermove", (event) => {
+    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+    const maxWidth = content.clientWidth;
+    const width = Math.min(
+      maxWidth,
+      Math.max(80, resizeState.startWidth + event.clientX - resizeState.startX)
+    );
+    const percent = Math.round((width / maxWidth) * 1000) / 10;
+    resizeState.image.dataset.width = String(percent);
+    resizeState.image.style.width = `${percent}%`;
+  });
+
+  function finishResize(event) {
+    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+    resizeState.image.classList.remove("resizing");
+    resizeState.image.releasePointerCapture?.(event.pointerId);
+    resizeState = null;
+    content.dispatchEvent(new Event("input", { bubbles: true }));
+    setStatus("이미지 크기 저장됨", "connected");
+  }
+
+  content.addEventListener("pointerup", finishResize);
+  content.addEventListener("pointercancel", finishResize);
+
+  content.addEventListener("dblclick", (event) => {
+    if (!event.target.matches("img[data-image-id]")) return;
+    event.target.removeAttribute("data-width");
+    event.target.style.removeProperty("width");
+    content.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
   content.addEventListener("keydown", (event) => {
@@ -387,7 +444,7 @@ document.querySelectorAll(".memo").forEach((memo) => {
       image.src = dataUrl;
       image.dataset.imageId = imageId;
       image.alt = "붙여넣은 이미지";
-      image.title = "클릭 후 Delete 키로 삭제";
+      image.title = "클릭 후 우측 아래를 드래그해 크기 조절";
       fragment.append(image, document.createElement("br"));
       insertNodeAtRange(content, range, fragment);
       setStatus("이미지 공유됨", "connected");

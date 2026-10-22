@@ -193,6 +193,13 @@ body {
 .memo-content img.selected {
   outline: 2px solid #8fffc1;
   outline-offset: 2px;
+  box-shadow: 5px 5px 0 -2px #8fffc1;
+  cursor: nwse-resize;
+}
+
+.memo-content img.resizing {
+  user-select: none;
+  touch-action: none;
 }
 
 .save-status {
