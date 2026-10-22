@@ -4,7 +4,6 @@ export const firebaseConfig = {
   apiKey: "AIzaSyDz8TBoKgbU5YKH4z9Ww7fsgvTGI3tnSsE",
   authDomain: "nap-task-share.firebaseapp.com",
   projectId: "nap-task-share",
-  storageBucket: "nap-task-share.firebasestorage.app",
   messagingSenderId: "916776632208",
   appId: "1:916776632208:web:36a1c3ad88c25376c7fd15"
 };

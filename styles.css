@@ -48,9 +48,14 @@ body {
 }
 
 .daily-text::placeholder,
-.memo-title::placeholder,
-.memo-content::placeholder {
+.memo-title::placeholder {
   color: #4f5964;
+}
+
+.memo-content:empty::before {
+  content: attr(data-placeholder);
+  color: #4f5964;
+  pointer-events: none;
 }
 
 .memos {
@@ -168,10 +173,26 @@ body {
   flex: 1;
   min-height: calc(100vh - var(--top-height) - 190px);
   padding: 28px 0;
+  overflow-wrap: anywhere;
   font-size: 20.4px;
   font-weight: 700;
   line-height: 1.8;
-  resize: none;
+  white-space: pre-wrap;
+}
+
+.memo-content img {
+  display: inline-block;
+  width: auto;
+  max-width: 100%;
+  max-height: 520px;
+  margin: 8px 4px;
+  border-radius: 8px;
+  vertical-align: middle;
+}
+
+.memo-content img.selected {
+  outline: 2px solid #8fffc1;
+  outline-offset: 2px;
 }
 
 .save-status {

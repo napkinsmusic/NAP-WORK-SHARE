@@ -18,7 +18,7 @@
   <main class="memos">
     <section class="memo" data-memo="0">
       <input class="memo-title" type="text" aria-label="왼쪽 메모 제목" placeholder="제목" autocomplete="off">
-      <textarea class="memo-content" aria-label="왼쪽 메모 내용" placeholder="내용을 입력하세요" spellcheck="true"></textarea>
+      <div class="memo-content" contenteditable="true" role="textbox" aria-multiline="true" aria-label="왼쪽 메모 내용" data-placeholder="내용을 입력하세요" spellcheck="true"></div>
     </section>
 
     <div class="center-column">
@@ -31,7 +31,7 @@
           </label>
           <input class="memo-title" type="text" aria-label="가운데 위 이름" placeholder="이름" autocomplete="off">
         </div>
-        <textarea class="memo-content" aria-label="가운데 위 내용" placeholder="내용을 입력하세요" spellcheck="true"></textarea>
+        <div class="memo-content" contenteditable="true" role="textbox" aria-multiline="true" aria-label="가운데 위 내용" data-placeholder="내용을 입력하세요" spellcheck="true"></div>
       </section>
 
       <section class="memo" data-memo="3">
@@ -43,13 +43,13 @@
           </label>
           <input class="memo-title" type="text" aria-label="가운데 아래 이름" placeholder="이름" autocomplete="off">
         </div>
-        <textarea class="memo-content" aria-label="가운데 아래 내용" placeholder="내용을 입력하세요" spellcheck="true"></textarea>
+        <div class="memo-content" contenteditable="true" role="textbox" aria-multiline="true" aria-label="가운데 아래 내용" data-placeholder="내용을 입력하세요" spellcheck="true"></div>
       </section>
     </div>
 
     <section class="memo" data-memo="2">
       <input class="memo-title" type="text" aria-label="오른쪽 메모 제목" placeholder="제목" autocomplete="off">
-      <textarea class="memo-content" aria-label="오른쪽 메모 내용" placeholder="내용을 입력하세요" spellcheck="true"></textarea>
+      <div class="memo-content" contenteditable="true" role="textbox" aria-multiline="true" aria-label="오른쪽 메모 내용" data-placeholder="내용을 입력하세요" spellcheck="true"></div>
     </section>
   </main>
 
