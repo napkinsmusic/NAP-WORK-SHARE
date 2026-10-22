@@ -8,6 +8,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['value', 'updatedAt', 'updatedBy'])
         && request.resource.data.value is string
         && request.resource.data.value.size() < 800000
+        && request.resource.data.updatedAt == request.time
         && request.resource.data.updatedBy == request.auth.uid;
       allow delete: if request.auth != null
         && fieldId in [
