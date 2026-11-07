@@ -26,7 +26,7 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.keys().hasOnly(['dataUrl', 'createdAt', 'createdBy'])
         && request.resource.data.dataUrl is string
-        && request.resource.data.dataUrl.matches('data:image/webp;base64,.*')
+        && request.resource.data.dataUrl.matches('data:image/(webp|jpeg);base64,.*')
         && request.resource.data.dataUrl.size() < 430000
         && request.resource.data.createdAt == request.time
         && request.resource.data.createdBy == request.auth.uid;
