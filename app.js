@@ -14,6 +14,7 @@ import { boardId, firebaseConfig } from "./firebase-config.js";
 const status = document.getElementById("save-status");
 const today = document.getElementById("today");
 const dailyText = document.getElementById("daily-text");
+const imageToolbar = document.getElementById("image-toolbar");
 const timers = new Map();
 const bindings = new Map();
 let writeRemote = null;
@@ -21,6 +22,7 @@ let saveSharedImage = null;
 let deleteSharedImage = null;
 const RICH_PREFIX = "<!--nap-rich-->";
 const imageCache = new Map();
+let selectedInlineImage = null;
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const expiringFieldIds = new Set([
   "daily",
@@ -139,6 +141,7 @@ function sanitizeRichHtml(html) {
         image.dataset.width = String(width);
         image.style.width = `${width}%`;
       }
+      image.draggable = false;
       image.alt = "붙여넣은 이미지";
       image.title = "클릭 후 우측 아래를 드래그해 크기 조절";
       parent.append(image);
@@ -181,6 +184,74 @@ function getImageIds(editor) {
   );
 }
 
+function hideImageToolbar() {
+  selectedInlineImage?.classList.remove("selected");
+  selectedInlineImage = null;
+  imageToolbar.hidden = true;
+}
+
+function positionImageToolbar() {
+  if (!selectedInlineImage?.isConnected) {
+    hideImageToolbar();
+    return;
+  }
+
+  imageToolbar.hidden = false;
+  const imageRect = selectedInlineImage.getBoundingClientRect();
+  const toolbarRect = imageToolbar.getBoundingClientRect();
+  const left = Math.min(
+    window.innerWidth - toolbarRect.width - 8,
+    Math.max(8, imageRect.left)
+  );
+  const below = imageRect.bottom + 8;
+  const top = below + toolbarRect.height <= window.innerHeight
+    ? below
+    : Math.max(8, imageRect.top - toolbarRect.height - 8);
+  imageToolbar.style.left = `${left}px`;
+  imageToolbar.style.top = `${top}px`;
+}
+
+function selectInlineImage(image) {
+  if (selectedInlineImage !== image) {
+    selectedInlineImage?.classList.remove("selected");
+    selectedInlineImage = image;
+    image.classList.add("selected");
+  }
+  positionImageToolbar();
+}
+
+imageToolbar.addEventListener("pointerdown", (event) => event.stopPropagation());
+imageToolbar.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-image-action]");
+  if (!button || !selectedInlineImage?.isConnected) return;
+  const editor = selectedInlineImage.closest(".memo-content");
+  const action = button.dataset.imageAction;
+
+  if (action === "delete") {
+    selectedInlineImage.remove();
+    hideImageToolbar();
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    return;
+  }
+
+  const currentWidth = Number(selectedInlineImage.dataset.width)
+    || (selectedInlineImage.getBoundingClientRect().width / editor.clientWidth) * 100;
+  const width = Math.min(100, Math.max(10, currentWidth + (action === "larger" ? 10 : -10)));
+  selectedInlineImage.dataset.width = String(Math.round(width * 10) / 10);
+  selectedInlineImage.style.width = `${width}%`;
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+  requestAnimationFrame(positionImageToolbar);
+  setStatus("이미지 크기 저장됨", "connected");
+});
+
+document.addEventListener("pointerdown", (event) => {
+  if (event.target.closest(".image-toolbar, img[data-image-id]")) return;
+  hideImageToolbar();
+});
+
+window.addEventListener("resize", positionImageToolbar);
+window.addEventListener("scroll", positionImageToolbar, true);
+
 function compressInlineImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -194,31 +265,40 @@ function compressInlineImage(file) {
         let scale = Math.min(1, maxSize / Math.max(image.width, image.height));
         let quality = .86;
 
-        const convert = () => {
+        const canvasToBlob = (canvas, type, blobQuality) => new Promise((resolveBlob) => {
+          canvas.toBlob((blob) => {
+            if (blob || type === "image/jpeg") {
+              resolveBlob(blob);
+              return;
+            }
+            canvas.toBlob(resolveBlob, "image/jpeg", blobQuality);
+          }, type, blobQuality);
+        });
+
+        const convert = async () => {
           const canvas = document.createElement("canvas");
           canvas.width = Math.max(1, Math.round(image.width * scale));
           canvas.height = Math.max(1, Math.round(image.height * scale));
           canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob((blob) => {
-            if (!blob) {
-              reject(new Error("이미지 변환 실패"));
-              return;
-            }
-            if (blob.size <= maxBytes) {
-              resolve(blob);
-              return;
-            }
-            if (quality > .5) {
-              quality -= .1;
-            } else {
-              scale *= .82;
-              quality = .72;
-            }
-            convert();
-          }, "image/webp", quality);
+          const blob = await canvasToBlob(canvas, "image/webp", quality);
+          if (!blob) {
+            reject(new Error("이미지 변환 실패"));
+            return;
+          }
+          if (blob.size <= maxBytes || scale < .2) {
+            resolve(blob);
+            return;
+          }
+          if (quality > .5) {
+            quality -= .1;
+          } else {
+            scale *= .82;
+            quality = .72;
+          }
+          convert();
         };
 
-        convert();
+        convert().catch(reject);
       };
       image.src = reader.result;
     };
@@ -257,6 +337,129 @@ function insertNodeAtRange(editor, range, node) {
   selection.removeAllRanges();
   selection.addRange(target);
   editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function isImageFile(file) {
+  if (!file) return false;
+  if (!file.type || file.type.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(file.name || "");
+}
+
+function readClipboardImage(clipboard) {
+  if (!clipboard) return null;
+
+  if (clipboard.files) {
+    for (let index = 0; index < clipboard.files.length; index += 1) {
+      if (isImageFile(clipboard.files[index])) return clipboard.files[index];
+    }
+  }
+
+  if (!clipboard.items) return null;
+  for (let index = 0; index < clipboard.items.length; index += 1) {
+    const item = clipboard.items[index];
+    const type = item.type || "";
+    if (item.kind !== "file" && !type.startsWith("image/")) continue;
+    const file = item.getAsFile?.();
+    if (isImageFile(file)) return file;
+  }
+  return null;
+}
+
+function readClipboardText(clipboard, type) {
+  if (!clipboard) return "";
+  try {
+    return clipboard.getData(type) || "";
+  } catch {
+    return "";
+  }
+}
+
+function readClipboardDataUrl(clipboard) {
+  const html = readClipboardText(clipboard, "text/html");
+  const match = html.match(/src=["'](data:image\/[^"']+)["']/i);
+  return match?.[1] || "";
+}
+
+function currentEditorRange(editor) {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return null;
+  return range.cloneRange();
+}
+
+async function sourceToBlob(source) {
+  if (source instanceof Blob) return source;
+  const response = await fetch(source);
+  if (!response.ok) throw new Error("이미지 변환 실패");
+  return response.blob();
+}
+
+function waitForImage(image) {
+  if (image.complete) {
+    return image.naturalWidth
+      ? Promise.resolve()
+      : Promise.reject(new Error("이미지를 읽지 못했습니다"));
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("이미지를 읽지 못했습니다")), 4000);
+    image.addEventListener("load", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+    image.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error("이미지를 읽지 못했습니다"));
+    }, { once: true });
+  });
+}
+
+async function blobFromImageElement(image) {
+  const src = image.currentSrc || image.src || "";
+  if (!src || src.startsWith("webkit-fake-url:") || src.startsWith("file:")) {
+    throw new Error("이미지를 읽지 못했습니다");
+  }
+  if (src.startsWith("data:") || src.startsWith("blob:")) return sourceToBlob(src);
+
+  try {
+    return await sourceToBlob(src);
+  } catch {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    canvas.getContext("2d").drawImage(image, 0, 0);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", .86));
+    if (!blob) throw new Error("이미지를 읽지 못했습니다");
+    return blob;
+  }
+}
+
+async function insertInlineImage(editor, range, source) {
+  if (!saveSharedImage) {
+    setStatus("이미지 공유 연결 중...", "error");
+    return;
+  }
+
+  try {
+    setStatus("이미지 업로드 중...");
+    const compressed = await compressInlineImage(await sourceToBlob(source));
+    const dataUrl = await blobToDataUrl(compressed);
+    const imageId = await saveSharedImage(dataUrl);
+    const fragment = document.createDocumentFragment();
+    const image = document.createElement("img");
+    image.src = dataUrl;
+    image.dataset.imageId = imageId;
+    image.draggable = false;
+    image.alt = "붙여넣은 이미지";
+    image.title = "눌러서 크기 조절";
+    fragment.append(image, document.createElement("br"));
+    insertNodeAtRange(editor, range, fragment);
+    setStatus("이미지 공유됨", "connected");
+  } catch (error) {
+    console.error(error);
+    setStatus("이미지 업로드 실패", "error");
+  }
 }
 
 function insertPlainText(editor, text) {
@@ -341,7 +544,55 @@ document.querySelectorAll(".memo").forEach((memo) => {
     scheduleSave(`memo-${index}-title`, title.value);
   });
 
+  let adoptingImages = false;
+
+  async function adoptNativeImages() {
+    if (adoptingImages) return;
+    const images = [...content.querySelectorAll("img:not([data-image-id]):not(.uploading)")];
+    if (!images.length) return;
+
+    adoptingImages = true;
+    for (const image of images) image.classList.add("uploading");
+
+    if (!saveSharedImage) {
+      for (const image of images) image.remove();
+      adoptingImages = false;
+      setStatus("이미지 공유 연결 중...", "error");
+      content.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+
+    setStatus("이미지 업로드 중...");
+    for (const image of images) {
+      try {
+        await waitForImage(image);
+        const compressed = await compressInlineImage(await blobFromImageElement(image));
+        const dataUrl = await blobToDataUrl(compressed);
+        const imageId = await saveSharedImage(dataUrl);
+        image.src = dataUrl;
+        image.dataset.imageId = imageId;
+        image.draggable = false;
+        image.alt = "붙여넣은 이미지";
+        image.title = "눌러서 크기 조절";
+        image.classList.remove("uploading");
+      } catch (error) {
+        console.error(error);
+        image.remove();
+        setStatus("사진 또는 붙여넣기 버튼으로 넣어 주세요", "error");
+      }
+    }
+
+    adoptingImages = false;
+    content.dispatchEvent(new Event("input", { bubbles: true }));
+    if (content.querySelector("img:not([data-image-id])")) adoptNativeImages();
+  }
+
   content.addEventListener("input", () => {
+    if (content.querySelector("img:not([data-image-id]):not(.uploading)")) {
+      adoptNativeImages();
+    }
+    if (adoptingImages || content.querySelector("img:not([data-image-id])")) return;
+
     const currentImageIds = getImageIds(content);
     for (const imageId of knownImageIds) {
       if (!currentImageIds.has(imageId)) deleteSharedImage?.(imageId);
@@ -352,15 +603,15 @@ document.querySelectorAll(".memo").forEach((memo) => {
   });
 
   content.addEventListener("click", (event) => {
-    content.querySelectorAll("img.selected").forEach((image) => image.classList.remove("selected"));
     if (!event.target.matches("img[data-image-id]")) return;
-    event.target.classList.add("selected");
-    setStatus("우측 아래를 드래그해 크기 조절 · Delete로 삭제");
+    selectInlineImage(event.target);
+    setStatus("− / + 버튼 또는 모서리 드래그로 크기 조절");
   });
 
   content.addEventListener("pointerdown", (event) => {
     if (!event.target.matches("img[data-image-id]")) return;
     const image = event.target;
+    selectInlineImage(image);
     const rect = image.getBoundingClientRect();
     const isResizeCorner = rect.right - event.clientX <= 28
       && rect.bottom - event.clientY <= 28;
@@ -395,6 +646,7 @@ document.querySelectorAll(".memo").forEach((memo) => {
     resizeState.image.releasePointerCapture?.(event.pointerId);
     resizeState = null;
     content.dispatchEvent(new Event("input", { bubbles: true }));
+    requestAnimationFrame(positionImageToolbar);
     setStatus("이미지 크기 저장됨", "connected");
   }
 
@@ -406,6 +658,7 @@ document.querySelectorAll(".memo").forEach((memo) => {
     event.target.removeAttribute("data-width");
     event.target.style.removeProperty("width");
     content.dispatchEvent(new Event("input", { bubbles: true }));
+    requestAnimationFrame(positionImageToolbar);
   });
 
   content.addEventListener("keydown", (event) => {
@@ -413,44 +666,68 @@ document.querySelectorAll(".memo").forEach((memo) => {
     if (!selectedImage || !["Backspace", "Delete"].includes(event.key)) return;
     event.preventDefault();
     selectedImage.remove();
+    if (selectedInlineImage === selectedImage) hideImageToolbar();
     content.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
-  content.addEventListener("paste", async (event) => {
-    const imageItem = [...event.clipboardData.items]
-      .find((item) => item.kind === "file" && item.type.startsWith("image/"));
-    event.preventDefault();
+  content.addEventListener("paste", (event) => {
+    const clipboard = event.clipboardData;
+    const file = readClipboardImage(clipboard);
+    const dataUrl = readClipboardDataUrl(clipboard);
+    const text = readClipboardText(clipboard, "text/plain");
+    const html = readClipboardText(clipboard, "text/html");
+    const range = currentEditorRange(content);
 
-    if (!imageItem) {
-      insertPlainText(content, event.clipboardData.getData("text/plain"));
+    if (file || dataUrl) {
+      event.preventDefault();
+      insertInlineImage(content, range, file || dataUrl);
       return;
     }
 
-    if (!saveSharedImage) {
-      setStatus("이미지 공유 연결 중...", "error");
+    if (text && !/<img\b/i.test(html)) {
+      event.preventDefault();
+      insertPlainText(content, text);
       return;
     }
 
-    const selection = window.getSelection();
-    const range = selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+    requestAnimationFrame(() => adoptNativeImages());
+  });
 
+  const inlinePhotoInput = memo.querySelector(".inline-photo-input");
+  const pasteImageButton = memo.querySelector(".paste-image");
+  let toolRange = null;
+
+  memo.querySelector(".memo-tools")?.addEventListener("pointerdown", () => {
+    toolRange = currentEditorRange(content);
+  });
+
+  inlinePhotoInput?.addEventListener("change", () => {
+    const file = inlinePhotoInput.files?.[0];
+    inlinePhotoInput.value = "";
+    if (!file) return;
+    insertInlineImage(content, toolRange, file);
+  });
+
+  pasteImageButton?.addEventListener("click", async () => {
+    const range = toolRange || currentEditorRange(content);
     try {
-      setStatus("붙여넣은 이미지 업로드 중...");
-      const blob = await compressInlineImage(imageItem.getAsFile());
-      const dataUrl = await blobToDataUrl(blob);
-      const imageId = await saveSharedImage(dataUrl);
-      const fragment = document.createDocumentFragment();
-      const image = document.createElement("img");
-      image.src = dataUrl;
-      image.dataset.imageId = imageId;
-      image.alt = "붙여넣은 이미지";
-      image.title = "클릭 후 우측 아래를 드래그해 크기 조절";
-      fragment.append(image, document.createElement("br"));
-      insertNodeAtRange(content, range, fragment);
-      setStatus("이미지 공유됨", "connected");
+      if (!navigator.clipboard?.read) throw new Error("clipboard-read-unavailable");
+      const items = await navigator.clipboard.read();
+      let blob = null;
+      for (const item of items) {
+        const type = item.types.find((entry) => entry.startsWith("image/"));
+        if (!type) continue;
+        blob = await item.getType(type);
+        break;
+      }
+      if (!blob) {
+        setStatus("복사된 사진이 없습니다", "error");
+        return;
+      }
+      insertInlineImage(content, range, blob);
     } catch (error) {
       console.error(error);
-      setStatus("이미지 업로드 실패", "error");
+      setStatus("붙여넣기를 허용하거나 사진 버튼으로 넣어 주세요", "error");
     }
   });
 
@@ -525,6 +802,7 @@ async function connectFirebase() {
       for (const change of snapshot.docChanges()) {
         if (change.type === "removed") {
           imageCache.delete(change.doc.id);
+          if (selectedInlineImage?.dataset.imageId === change.doc.id) hideImageToolbar();
           document.querySelectorAll(`img[data-image-id="${change.doc.id}"]`)
             .forEach((image) => image.remove());
         } else {
