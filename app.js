@@ -14,7 +14,6 @@ import { boardId, firebaseConfig } from "./firebase-config.js";
 const status = document.getElementById("save-status");
 const today = document.getElementById("today");
 const dailyText = document.getElementById("daily-text");
-const imageToolbar = document.getElementById("image-toolbar");
 const timers = new Map();
 const bindings = new Map();
 let writeRemote = null;
@@ -184,73 +183,22 @@ function getImageIds(editor) {
   );
 }
 
-function hideImageToolbar() {
+function clearSelectedImage() {
   selectedInlineImage?.classList.remove("selected");
   selectedInlineImage = null;
-  imageToolbar.hidden = true;
-}
-
-function positionImageToolbar() {
-  if (!selectedInlineImage?.isConnected) {
-    hideImageToolbar();
-    return;
-  }
-
-  imageToolbar.hidden = false;
-  const imageRect = selectedInlineImage.getBoundingClientRect();
-  const toolbarRect = imageToolbar.getBoundingClientRect();
-  const left = Math.min(
-    window.innerWidth - toolbarRect.width - 8,
-    Math.max(8, imageRect.left)
-  );
-  const below = imageRect.bottom + 8;
-  const top = below + toolbarRect.height <= window.innerHeight
-    ? below
-    : Math.max(8, imageRect.top - toolbarRect.height - 8);
-  imageToolbar.style.left = `${left}px`;
-  imageToolbar.style.top = `${top}px`;
 }
 
 function selectInlineImage(image) {
-  if (selectedInlineImage !== image) {
-    selectedInlineImage?.classList.remove("selected");
-    selectedInlineImage = image;
-    image.classList.add("selected");
-  }
-  positionImageToolbar();
+  if (selectedInlineImage === image) return;
+  selectedInlineImage?.classList.remove("selected");
+  selectedInlineImage = image;
+  image.classList.add("selected");
 }
 
-imageToolbar.addEventListener("pointerdown", (event) => event.stopPropagation());
-imageToolbar.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-image-action]");
-  if (!button || !selectedInlineImage?.isConnected) return;
-  const editor = selectedInlineImage.closest(".memo-content");
-  const action = button.dataset.imageAction;
-
-  if (action === "delete") {
-    selectedInlineImage.remove();
-    hideImageToolbar();
-    editor.dispatchEvent(new Event("input", { bubbles: true }));
-    return;
-  }
-
-  const currentWidth = Number(selectedInlineImage.dataset.width)
-    || (selectedInlineImage.getBoundingClientRect().width / editor.clientWidth) * 100;
-  const width = Math.min(100, Math.max(10, currentWidth + (action === "larger" ? 10 : -10)));
-  selectedInlineImage.dataset.width = String(Math.round(width * 10) / 10);
-  selectedInlineImage.style.width = `${width}%`;
-  editor.dispatchEvent(new Event("input", { bubbles: true }));
-  requestAnimationFrame(positionImageToolbar);
-  setStatus("이미지 크기 저장됨", "connected");
-});
-
 document.addEventListener("pointerdown", (event) => {
-  if (event.target.closest(".image-toolbar, img[data-image-id]")) return;
-  hideImageToolbar();
+  if (event.target.closest("img[data-image-id]")) return;
+  clearSelectedImage();
 });
-
-window.addEventListener("resize", positionImageToolbar);
-window.addEventListener("scroll", positionImageToolbar, true);
 
 const MAX_IMAGE_DATA_URL = 420000;
 
@@ -752,12 +700,6 @@ document.querySelectorAll(".memo").forEach((memo) => {
     scheduleSave(`memo-${index}-content`, getEditorValue(content));
   });
 
-  content.addEventListener("click", (event) => {
-    if (!event.target.matches("img[data-image-id]")) return;
-    selectInlineImage(event.target);
-    setStatus("− / + 버튼 또는 모서리 드래그로 크기 조절");
-  });
-
   content.addEventListener("pointerdown", (event) => {
     if (!event.target.matches("img[data-image-id]")) return;
     const image = event.target;
@@ -796,7 +738,6 @@ document.querySelectorAll(".memo").forEach((memo) => {
     resizeState.image.releasePointerCapture?.(event.pointerId);
     resizeState = null;
     content.dispatchEvent(new Event("input", { bubbles: true }));
-    requestAnimationFrame(positionImageToolbar);
     setStatus("이미지 크기 저장됨", "connected");
   }
 
@@ -808,7 +749,6 @@ document.querySelectorAll(".memo").forEach((memo) => {
     event.target.removeAttribute("data-width");
     event.target.style.removeProperty("width");
     content.dispatchEvent(new Event("input", { bubbles: true }));
-    requestAnimationFrame(positionImageToolbar);
   });
 
   content.addEventListener("keydown", (event) => {
@@ -816,7 +756,7 @@ document.querySelectorAll(".memo").forEach((memo) => {
     if (!selectedImage || !["Backspace", "Delete"].includes(event.key)) return;
     event.preventDefault();
     selectedImage.remove();
-    if (selectedInlineImage === selectedImage) hideImageToolbar();
+    if (selectedInlineImage === selectedImage) clearSelectedImage();
     content.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
@@ -947,7 +887,7 @@ async function connectFirebase() {
       for (const change of snapshot.docChanges()) {
         if (change.type === "removed") {
           imageCache.delete(change.doc.id);
-          if (selectedInlineImage?.dataset.imageId === change.doc.id) hideImageToolbar();
+          if (selectedInlineImage?.dataset.imageId === change.doc.id) clearSelectedImage();
           document.querySelectorAll(`img[data-image-id="${change.doc.id}"]`)
             .forEach((image) => image.remove());
         } else {

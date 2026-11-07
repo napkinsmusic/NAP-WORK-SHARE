@@ -214,38 +214,6 @@ body {
 
 .memo-content img.uploading { opacity: .55; }
 
-.image-toolbar {
-  position: fixed;
-  z-index: 20;
-  display: flex;
-  gap: 4px;
-  padding: 5px;
-  border: 1px solid #3b4652;
-  border-radius: 9px;
-  background: #151a20;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
-}
-
-.image-toolbar[hidden] { display: none; }
-
-.image-toolbar button {
-  min-width: 36px;
-  height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 6px;
-  background: #27313c;
-  color: var(--text);
-  font: inherit;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.image-toolbar button:hover,
-.image-toolbar button:active {
-  background: #3a4857;
-}
-
 .save-status {
   position: fixed;
   z-index: 6;
