@@ -400,16 +400,17 @@ function snapshotClipboardImages(clipboard) {
   const seen = new Set();
 
   function push(file) {
-    if (!file || seen.has(file) || file.size <= 0 || !isImageFile(file)) return;
-    seen.add(file);
+    if (!file || file.size <= 0 || !isImageFile(file)) return;
+    const key = `${file.type}|${file.size}|${file.lastModified}|${file.name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     files.push(file);
   }
 
-  if (clipboard.files) {
-    for (let index = 0; index < clipboard.files.length; index += 1) push(clipboard.files[index]);
-  }
-
-  if (clipboard.items) {
+  const listedFiles = clipboard.files?.length ? clipboard.files : null;
+  if (listedFiles) {
+    for (let index = 0; index < listedFiles.length; index += 1) push(listedFiles[index]);
+  } else if (clipboard.items) {
     for (let index = 0; index < clipboard.items.length; index += 1) {
       const item = clipboard.items[index];
       const type = item.type || "";
@@ -631,27 +632,7 @@ document.querySelectorAll(".memo").forEach((memo) => {
   let adoptingImages = false;
   let handlingPaste = false;
   let lastImagePaste = 0;
-  let mobileSnapshot = null;
-  let snapshotTimer = 0;
   let ignoreNativeUntil = 0;
-  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
-
-  function takeMobileSnapshot() {
-    const snapshot = mobileSnapshot;
-    mobileSnapshot = null;
-    clearTimeout(snapshotTimer);
-    return snapshot;
-  }
-
-  function armMobileFallback() {
-    clearTimeout(snapshotTimer);
-    snapshotTimer = setTimeout(() => {
-      if (!mobileSnapshot || handlingPaste || adoptingImages) return;
-      if (content.querySelector("img:not([data-image-id]), img.uploading")) return;
-      const snapshot = takeMobileSnapshot();
-      if (snapshot) consumeClipboardImages(snapshot.range, snapshot.pending);
-    }, 700);
-  }
 
   function editorRange() {
     return currentEditorRange(content) || (() => {
@@ -683,7 +664,7 @@ document.querySelectorAll(".memo").forEach((memo) => {
       return;
     }
 
-    if (coarsePointer) ignoreNativeUntil = Date.now() + 1500;
+    ignoreNativeUntil = Date.now() + 1200;
     content.querySelectorAll("img:not([data-image-id])").forEach((image) => image.remove());
     content.dispatchEvent(new Event("input", { bubbles: true }));
   }
@@ -733,29 +714,14 @@ document.querySelectorAll(".memo").forEach((memo) => {
 
     adoptingImages = false;
     content.dispatchEvent(new Event("input", { bubbles: true }));
-
-    if (!failed) {
-      takeMobileSnapshot();
-      return;
-    }
-
-    const snapshot = takeMobileSnapshot();
-    if (snapshot) {
-      consumeClipboardImages(snapshot.range, snapshot.pending);
-      return;
-    }
-
-    setStatus("이미지 업로드 실패", "error");
+    if (failed) setStatus("이미지 업로드 실패", "error");
     if (content.querySelector("img:not([data-image-id]):not(.uploading)")) adoptNativeImages();
   }
 
   const imageObserver = new MutationObserver(() => {
     if (handlingPaste) return;
     if (Date.now() < ignoreNativeUntil) {
-      const stray = [...content.querySelectorAll("img:not([data-image-id])")];
-      if (!stray.length) return;
-      stray.forEach((image) => image.remove());
-      content.dispatchEvent(new Event("input", { bubbles: true }));
+      content.querySelectorAll("img:not([data-image-id])").forEach((image) => image.remove());
       return;
     }
     if (content.querySelector("img:not([data-image-id]):not(.uploading)")) adoptNativeImages();
@@ -856,7 +822,6 @@ document.querySelectorAll(".memo").forEach((memo) => {
 
   function onBeforeInput(event) {
     if (event.inputType !== "insertFromPaste") return;
-    if (window.matchMedia("(pointer: coarse)").matches) return;
     if (editorForPasteEvent(event) !== content) return;
     if (performance.now() - lastImagePaste < 700) {
       event.preventDefault();
@@ -884,14 +849,8 @@ document.querySelectorAll(".memo").forEach((memo) => {
 
     if (pending.length) {
       lastImagePaste = performance.now();
-      if (!coarsePointer) {
-        event.preventDefault();
-        consumeClipboardImages(editorRange(), pending);
-        return;
-      }
-
-      mobileSnapshot = { range: editorRange(), pending };
-      armMobileFallback();
+      event.preventDefault();
+      consumeClipboardImages(editorRange(), pending);
       return;
     }
 
